@@ -48,7 +48,28 @@ class AgentModel(metaclass=ABCMeta):
 
     def load(self, model_path: str):
         if os.path.exists(model_path):
-            self._nn.load_state_dict(torch.load(model_path))
+            state = torch.load(model_path)
+            try:
+                self._nn.load_state_dict(state)
+            except RuntimeError as exc:
+                # Operator-space changes can alter action dimensions. In that case,
+                # load only shape-compatible tensors and keep the rest random.
+                current = self._nn.state_dict()
+                compatible = {
+                    k: v
+                    for k, v in state.items()
+                    if k in current and getattr(current[k], "shape", None) == getattr(v, "shape", None)
+                }
+                current.update(compatible)
+                self._nn.load_state_dict(current)
+                logger.warning(
+                    "Partial weight load for {} from {}: loaded {} / {} tensors (mismatch handled: {})",
+                    self._name,
+                    model_path,
+                    len(compatible),
+                    len(current),
+                    str(exc).splitlines()[0] if str(exc) else "shape_mismatch",
+                )
         else:
             logger.warning(f"No such model weight file: {model_path}")
 
