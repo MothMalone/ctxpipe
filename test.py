@@ -163,9 +163,17 @@ class Setup:
     ):
         model_tag = f"ctx_{iteration}"
         logger.info(f"model_tag={model_tag}")
+        include_raw = os.getenv("CTXPIPE_DATASET_INCLUDE", "").strip()
+        include_set = (
+            {x.strip() for x in include_raw.split(",") if x.strip()}
+            if include_raw
+            else None
+        )
 
         for _, info in datasets.items():
             dataset_name = info["dataset"]
+            if include_set is not None and dataset_name not in include_set:
+                continue
             # if Stats.select().where(Stats.notebook == notebook).exists():
             #     logger.warning(f"notebook {notebook} executed")
             #     continue

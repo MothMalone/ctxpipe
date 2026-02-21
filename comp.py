@@ -1,4 +1,5 @@
-from typing import List
+import os
+from typing import List, Tuple
 
 from ctxpipe.env.metric import *
 from ctxpipe.env.primitives import *
@@ -6,34 +7,89 @@ import env
 
 selected_prim: Primitive = LogisticRegressionPrim()
 
-imputernums: List[Primitive] = [ImputerMean(), ImputerMedian(), ImputerNumPrim()]
-encoders: List[Primitive] = [
-    NumericDataPrim(),
-    LabelEncoderPrim(),
-    OneHotEncoderPrim(),
-]
-fpreprocessings: List[Primitive] = [
-    MinMaxScalerPrim(),
-    MaxAbsScalerPrim(),
-    RobustScalerPrim(),
-    StandardScalerPrim(),
-    QuantileTransformerPrim(),
-    PowerTransformerPrim(),
-    NormalizerPrim(),
-    KBinsDiscretizerOrdinalPrim(),
-    Primitive(),
-]
-fengines: List[Primitive] = [
-    PolynomialFeaturesPrim(),
-    InteractionFeaturesPrim(),
-    PCA_AUTO_Prim(),
-    IncrementalPCA_Prim(),
-    KernelPCA_Prim(),
-    TruncatedSVD_Prim(),
-    RandomTreesEmbeddingPrim(),
-    Primitive(),
-]
-fselections: List[Primitive] = [VarianceThresholdPrim(), Primitive()]
+OPERATOR_SPACE = os.getenv("CTXPIPE_OPERATOR_SPACE", "ctxpipe").strip().lower()
+
+
+def _build_ctxpipe_space() -> Tuple[List[Primitive], List[Primitive], List[Primitive], List[Primitive], List[Primitive]]:
+    imputers = [ImputerMean(), ImputerMedian(), ImputerNumPrim()]
+    encoder_list = [
+        NumericDataPrim(),
+        LabelEncoderPrim(),
+        OneHotEncoderPrim(),
+    ]
+    preprocess_list = [
+        MinMaxScalerPrim(),
+        MaxAbsScalerPrim(),
+        RobustScalerPrim(),
+        StandardScalerPrim(),
+        QuantileTransformerPrim(),
+        PowerTransformerPrim(),
+        NormalizerPrim(),
+        KBinsDiscretizerOrdinalPrim(),
+        Primitive(),
+    ]
+    engine_list = [
+        PolynomialFeaturesPrim(),
+        InteractionFeaturesPrim(),
+        PCA_AUTO_Prim(),
+        IncrementalPCA_Prim(),
+        KernelPCA_Prim(),
+        TruncatedSVD_Prim(),
+        RandomTreesEmbeddingPrim(),
+        Primitive(),
+    ]
+    selection_list = [VarianceThresholdPrim(), Primitive()]
+    return imputers, encoder_list, preprocess_list, engine_list, selection_list
+
+
+def _build_solrec_space() -> Tuple[List[Primitive], List[Primitive], List[Primitive], List[Primitive], List[Primitive]]:
+    # Maps SoluRec operator families into CtxPipe's component layout:
+    # ImputerNum      -> imputation
+    # Encoder         -> encoding
+    # FeaturePreprocessing -> scaling + outlier handling
+    # FeatureEngine   -> dimensionality reduction
+    # FeatureSelection -> feature selection
+    imputers = [
+        Primitive(),  # none
+        ImputerMean(),
+        ImputerMedian(),
+        ImputerNumPrim(),  # most_frequent
+        ImputerConstantPrim(),
+        ImputerKNNPrim(),
+    ]
+    encoder_list = [
+        Primitive(),  # none
+        OneHotEncoderPrim(),
+    ]
+    preprocess_list = [
+        Primitive(),  # none
+        StandardScalerPrim(),
+        MinMaxScalerPrim(),
+        RobustScalerPrim(),
+        MaxAbsScalerPrim(),
+        OutlierIQRClipPrim(),
+        OutlierZScoreClipPrim(),
+        OutlierLOFCleanPrim(),
+        OutlierIsolationForestCleanPrim(),
+    ]
+    engine_list = [
+        Primitive(),  # none
+        PCA_AUTO_Prim(),
+        TruncatedSVD_Prim(),
+    ]
+    selection_list = [
+        Primitive(),  # none
+        VarianceThresholdPrim(),
+        SelectKBestFClassifPrim(),
+        SelectKBestMutualInfoPrim(),
+    ]
+    return imputers, encoder_list, preprocess_list, engine_list, selection_list
+
+
+if OPERATOR_SPACE == "solrec":
+    imputernums, encoders, fpreprocessings, fengines, fselections = _build_solrec_space()
+else:
+    imputernums, encoders, fpreprocessings, fengines, fselections = _build_ctxpipe_space()
 
 logic_pipeline_1 = [
     "ImputerNum",

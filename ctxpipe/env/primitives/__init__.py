@@ -5,3 +5,4 @@ from .fselection import *
 from .imputercat import *
 from .imputernum import *
 from .predictor import *
+from .solrec import *

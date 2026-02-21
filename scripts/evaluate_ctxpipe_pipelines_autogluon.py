@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -37,6 +38,16 @@ import comp
 from ctxpipe.env.primitives.imputercat import ImputerCatPrim
 from ctxpipe.env.primitives.primitive import Primitive
 from ctxpipe.solrec_split import split_train_val_test
+
+try:
+    from pandas.errors import SettingWithCopyWarning
+except Exception:  # pragma: no cover
+    SettingWithCopyWarning = Warning  # type: ignore
+
+# Some legacy primitive implementations assign into sliced DataFrames.
+# Suppress this warning noise during replay/evaluation.
+warnings.filterwarnings("ignore", category=SettingWithCopyWarning)
+pd.options.mode.chained_assignment = None
 
 
 @dataclass
@@ -423,8 +434,11 @@ def main() -> None:
     selected = select_final_pipelines(rows, strategy=args.selection)
     dataset_filter = _load_dataset_filter(args.dataset_ids_file)
     selected_rows = list(selected.values())
+    missing_requested: List[str] = []
     if dataset_filter is not None:
         selected_rows = [r for r in selected_rows if r.dataset in dataset_filter]
+        present = {r.dataset for r in selected_rows}
+        missing_requested = sorted(dataset_filter - present)
 
     selected_rows.sort(key=lambda r: r.dataset)
     if args.max_datasets > 0:
@@ -462,6 +476,20 @@ def main() -> None:
             }
         records.append(record)
 
+    for ds in missing_requested:
+        records.append(
+            {
+                "dataset": ds,
+                "tag": "",
+                "ctx_reward": np.nan,
+                "ag_score": np.nan,
+                "sequence": [],
+                "sequence_raw": "",
+                "status": "error",
+                "error": "no_ctxpipe_pipeline_found_for_requested_dataset",
+            }
+        )
+
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     output_json.parent.mkdir(parents=True, exist_ok=True)
 
@@ -470,6 +498,7 @@ def main() -> None:
 
     summary = {
         "n_total_selected": len(selected_rows),
+        "n_requested_missing_pipeline": len(missing_requested),
         "n_ok": int((results_df["status"] == "ok").sum()) if not results_df.empty else 0,
         "n_error": int((results_df["status"] == "error").sum()) if not results_df.empty else 0,
         "mean_ag_score_ok": float(results_df.loc[results_df["status"] == "ok", "ag_score"].mean())
@@ -490,6 +519,10 @@ def main() -> None:
 
     print(f"Saved CSV:  {output_csv}")
     print(f"Saved JSON: {output_json}")
+    if missing_requested:
+        print("Missing requested datasets in pipelines.tsv:")
+        for ds in missing_requested:
+            print(f"  - {ds}")
     print(
         f"Done. selected={summary['n_total_selected']} ok={summary['n_ok']} error={summary['n_error']}"
     )

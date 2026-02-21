@@ -249,7 +249,13 @@ class Pipeline:
                     logger.warning(f"Error: {func.__name__}")
                     func_return = None
         else:
-            func_return = q.get()
+            try:
+                func_return = q.get()
+                if isinstance(func_return, BaseException):
+                    raise func_return
+            except Exception:
+                logger.warning(f"Error: {func.__name__}")
+                func_return = None
 
         try:
             if process.pid:
