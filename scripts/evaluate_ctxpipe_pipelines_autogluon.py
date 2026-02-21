@@ -44,9 +44,6 @@ class PipelineRow:
 
 def _load_autogluon():
     try:
-        ver = np.__version__.split(".")
-        if len(ver) >= 1 and int(ver[0]) >= 2:
-            raise RuntimeError("AutoGluon requires NumPy < 2.0; please install numpy<2")
         from autogluon.features.generators import IdentityFeatureGenerator  # type: ignore
         from autogluon.tabular import TabularPredictor  # type: ignore
     except Exception as exc:
