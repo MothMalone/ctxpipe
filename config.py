@@ -60,22 +60,23 @@ class GlobalConfig:
     ### hyperparameters for DQN
     gamma = 0.0
     learning_rate = 1e-5  # 1e-5
-    frames = 50000
+    frames = int(os.getenv("CTXPIPE_FRAMES", "50000"))
     max_buff = 5000
 
     column_num = 100
 
-    step_timeout = 60
+    step_timeout = int(os.getenv("CTXPIPE_STEP_TIMEOUT", "60"))
 
-    eps_decay = 2000
+    eps_decay = int(os.getenv("CTXPIPE_EPS_DECAY", "2000"))
 
     blank_reward = 0.0
     blank_rewards_str = (
         f"{blank_reward}" if blank_reward >= 0.0 else f"m{-blank_reward}"
     )
 
-    batch_size = 200 if not env.IS_TEST else 10
-    logic_batch_size = batch_size // 5
+    _default_batch_size = 200 if not env.IS_TEST else 10
+    batch_size = int(os.getenv("CTXPIPE_BATCH_SIZE", str(_default_batch_size)))
+    logic_batch_size = max(1, batch_size // 5)
 
     ctxpipe_setup_name = ""
     if not enable_context_plugin:
@@ -85,11 +86,16 @@ class GlobalConfig:
     else:
         ctxpipe_setup_name = "-3linear"
 
+    run_suffix = os.getenv("CTXPIPE_RUN_SUFFIX", "").strip()
     version = f"{'TEST_' if env.IS_TEST else ''}ctxpipe{ctxpipe_setup_name}"
+    if run_suffix:
+        version = f"{version}-{run_suffix}"
 
-    exp_dir = util.abspath(env.exp_prefix, f"{version}")
-    log_dir = util.abspath("logs", f"{version}")
-    model_dir: str = util.abspath("models", f"{version}")
+    exp_dir = os.getenv("CTXPIPE_EXP_DIR", util.abspath(env.exp_prefix, f"{version}"))
+    log_dir = os.getenv("CTXPIPE_LOG_DIR", util.abspath("logs", f"{version}"))
+    model_dir: str = os.getenv(
+        "CTXPIPE_MODEL_DIR", util.abspath("models", f"{version}")
+    )
 
     result_log_file_name: str = util.abspath(log_dir, "result_log.npy")
     loss_log_file_name: str = util.abspath(log_dir, "loss_log.pkl")
@@ -103,8 +109,11 @@ class GlobalConfig:
             logger.debug("making dir: {}", d)
             os.makedirs(d, exist_ok=True)
 
-    backpropagate_interval: int = 50 if not env.IS_TEST else 10
-    checkpoint_interval: int = 200
+    _default_backpropagate = 50 if not env.IS_TEST else 10
+    backpropagate_interval: int = int(
+        os.getenv("CTXPIPE_BACKPROPAGATE_INTERVAL", str(_default_backpropagate))
+    )
+    checkpoint_interval: int = int(os.getenv("CTXPIPE_CHECKPOINT_INTERVAL", "200"))
 
     column_feature_dim = 19 + 14
     data_dim: int = column_num * column_feature_dim
