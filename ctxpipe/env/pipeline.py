@@ -2,6 +2,7 @@ import multiprocessing
 import os
 import signal
 import time
+import getpass
 from multiprocessing import Process
 from typing import List
 
@@ -259,7 +260,20 @@ class Pipeline:
         except:
             pass
 
-        os.system(f"pkill -f '/home/{os.getlogin()}/anaconda3/envs/ctxpipe.*joblib'")
+        # Kaggle and notebook runtimes may not have a controlling TTY, so
+        # os.getlogin() raises OSError. Fallback to env/getpass and skip if unknown.
+        try:
+            login_name = os.getenv("USER") or os.getenv("LOGNAME") or os.getlogin()
+        except OSError:
+            login_name = None
+        if not login_name:
+            try:
+                login_name = getpass.getuser()
+            except Exception:
+                login_name = None
+
+        if login_name:
+            os.system(f"pkill -f '/home/{login_name}/anaconda3/envs/ctxpipe.*joblib'")
 
         q.close()
 
