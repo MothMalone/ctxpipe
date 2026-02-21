@@ -175,17 +175,7 @@ class RnnDQN(nn.Module):
         self.seq_feature_dim = len(comp.logic_pipeline_1)
 
         # seq_embedding_param
-        prim_nums = (
-            len(
-                set(comp.imputernums)
-                | set(comp.encoders)
-                | set(comp.fpreprocessings)
-                | set(comp.fengines)
-                | set(comp.fselections)
-            )
-            + 1
-            + 1
-        )
+        prim_nums = comp.seq_embedding_size
         seq_embedding_dim = config.seq_embedding_dim
         # seq_lstm param
         seq_hidden_size = config.seq_hidden_size

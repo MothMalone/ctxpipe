@@ -92,7 +92,7 @@ class Pipeline:
 
         self.load_data(taskid)
         self._logic_pipeline_id = None
-        self.gsequence = [26, 26, 26, 26, 26, 26]
+        self.gsequence = [comp.seq_start_token] * len(comp.logic_pipeline_1)
 
     @property
     def logic_pipeline_id(self) -> int:

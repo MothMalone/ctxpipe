@@ -191,6 +191,18 @@ single_action_dim: int = max(
     ]
 )
 
+all_primitives: List[Primitive] = (
+    list(imputernums)
+    + list(encoders)
+    + list(fpreprocessings)
+    + list(fengines)
+    + list(fselections)
+)
+max_primitive_gid: int = max(getattr(p, "gid", 0) for p in all_primitives)
+# Sequence features store primitive gids plus one reserved start token.
+seq_start_token: int = max_primitive_gid + 1
+seq_embedding_size: int = seq_start_token + 1
+
 num_predictors = len(predictors)
 num_lpipelines: int = len(lpipelines)
 
