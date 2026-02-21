@@ -123,7 +123,7 @@ class Setup:
             logger.info(f"evaluating on model iteration {it} done")
 
     def _reset_failed_file(self):
-        with open(self._info.done_file_path, "w") as f:
+        with open(self._info.failed_file_path, "w") as f:
             f.write(
                 "iteration\tnotebook_path\tdataset_path\tlabel_index\tmodel\treason\ttraceback\n"
             )
@@ -287,14 +287,22 @@ def evaluate_scalability():
 
 
 def evaluate_on_diffprep_dataset():
+    dataset_prefix = os.getenv("CTXPIPE_EVAL_DATASET_PREFIX", "data/diffprep_dataset")
+    aipipe_prefix = os.getenv("CTXPIPE_EVAL_AIPIPE_PREFIX", f"{conf.exp_dir}/aipipe")
+    result_prefix = os.getenv("CTXPIPE_EVAL_RESULT_PREFIX", f"{conf.exp_dir}/result")
+    dry_run = os.getenv("CTXPIPE_DRY_RUN", "0") == "1"
+    start = int(sys.argv[1]) if len(sys.argv) >= 2 else 32000
+    end = int(sys.argv[2]) if len(sys.argv) >= 3 else start
+
     evaluate(
         Info(
-            aipipe_core_prefix=f"{conf.exp_dir}/aipipe",
-            result_prefix=f"{conf.exp_dir}/result",
-            dataset_prefix=f"data/diffprep_dataset",
+            aipipe_core_prefix=aipipe_prefix,
+            result_prefix=result_prefix,
+            dataset_prefix=dataset_prefix,
         ),
-        start=int(sys.argv[1]),
-        end=int(sys.argv[2]),
+        start=start,
+        end=end,
+        dry_run=dry_run,
     )
 
 

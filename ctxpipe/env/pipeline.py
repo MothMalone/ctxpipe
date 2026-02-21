@@ -5,6 +5,7 @@ import time
 from multiprocessing import Process
 from typing import List
 
+import numpy as np
 import pandas as pd
 from loguru import logger
 from sklearn.model_selection import train_test_split
@@ -15,6 +16,7 @@ import util
 from config import GlobalConfig
 
 from .primitives.predictor import *
+from ..solrec_split import split_train_val_test
 
 
 class FunctionTimedOut(Exception):
@@ -102,6 +104,9 @@ class Pipeline:
     def logic_pipeline_id(self, value) -> None:
         self._logic_pipeline_id = value
 
+    def _use_solrec_split_mode(self) -> bool:
+        return os.getenv("CTXPIPE_SPLIT_MODE", "ctxpipe").strip().lower() == "solrec"
+
     def load_data(self, taskid, ratio=0.8, split_random_state=0):
         data = pd.read_csv(
             os.path.join(
@@ -119,21 +124,50 @@ class Pipeline:
 
         column = str(data.columns[label_index])
         # logger.debug(f"column={column}")
-        self.data_x = data.drop(columns=[column], axis=1)
-        self.data_y = data.iloc[:, label_index].values
+        self.data_x = data.drop(columns=[column], axis=1).reset_index(drop=True)
+
+        if self._use_solrec_split_mode():
+            y = data.iloc[:, label_index].copy()
+            if y.dtype == "object" or y.dtype.name == "category":
+                y = pd.Series(LabelEncoder().fit_transform(y), index=y.index)
+            else:
+                y = pd.Series(y, index=data.index)
+            y = y.reset_index(drop=True)
+            self.data_y = y
+
+            val_ratio = float(os.getenv("CTXPIPE_VAL_RATIO", "0.2"))
+            test_ratio = float(os.getenv("CTXPIPE_TEST_RATIO", "0.2"))
+            split_seed = int(os.getenv("CTXPIPE_SPLIT_SEED", "42"))
+
+            X_train, y_train, X_val, y_val, X_test, y_test = split_train_val_test(
+                self.data_x,
+                y,
+                val_ratio=val_ratio,
+                test_ratio=test_ratio,
+                seed=split_seed,
+            )
+
+            # CtxPipe expects train/test only. Keep SoluRec permutation by
+            # combining train+val into train and preserving test as-is.
+            self.train_x = pd.concat([X_train, X_val], axis=0).reset_index(drop=True)
+            self.train_y = pd.concat([y_train, y_val], axis=0).reset_index(drop=True)
+            self.test_x = X_test.reset_index(drop=True)
+            self.test_y = y_test.reset_index(drop=True)
+        else:
+            self.data_y = data.iloc[:, label_index].values
+            self.train_x, self.test_x, self.train_y, self.test_y = train_test_split(
+                self.data_x,
+                self.data_y,
+                train_size=ratio,
+                test_size=1 - ratio,
+                random_state=split_random_state,
+            )
+
+            if str(self.data_y.dtype) == "Object":
+                le = LabelEncoder()
+                self.data_y = le.fit_transform(self.data_y)
+
         del data
-
-        self.train_x, self.test_x, self.train_y, self.test_y = train_test_split(
-            self.data_x,
-            self.data_y,
-            train_size=ratio,
-            test_size=1 - ratio,
-            random_state=split_random_state,
-        )
-
-        if str(self.data_y.dtype) == "Object":
-            le = LabelEncoder()
-            self.data_y = le.fit_transform(self.data_y)
 
         self.num_cols = list(self.train_x._get_numeric_data().columns)
         self.cat_cols = list(set(self.train_x) - set(self.num_cols))
