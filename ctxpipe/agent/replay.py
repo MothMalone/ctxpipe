@@ -9,6 +9,10 @@ class ReplayBuffer(object):
         self.buffer = []
         self.lp_buffer = []
 
+    def _sample_items(self, src, batch_size):
+        indices = deterministic.buffer_rng.choice(len(src), batch_size, replace=False)
+        return [src[int(i)] for i in indices]
+
     def add(self, s0, a, r, s1, done, index, fixline_id, ctx):
         if len(self.buffer) >= self.capacity:
             self.buffer.pop(0)
@@ -27,7 +31,7 @@ class ReplayBuffer(object):
 
     def sample(self, batch_size):
         s0, a, r, s1, done, index, fixline_id, ctx = zip(
-            *deterministic.buffer_rng.choice(self.buffer, batch_size, replace=False)
+            *self._sample_items(self.buffer, batch_size)
         )
         return (
             np.concatenate(s0),
@@ -47,7 +51,7 @@ class ReplayBuffer(object):
 
     def lp_sample(self, batch_size):
         s0, a, r, ctx = zip(
-            *deterministic.buffer_rng.choice(self.lp_buffer, batch_size, replace=False)
+            *self._sample_items(self.lp_buffer, batch_size)
         )
         return np.concatenate(s0), a, r, ctx
 
