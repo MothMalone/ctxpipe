@@ -210,6 +210,27 @@ def _replay_pipeline(
     return train_x, train_y, test_x
 
 
+def _align_test_columns_to_train(
+    X_train: pd.DataFrame, X_test: pd.DataFrame
+) -> Tuple[pd.DataFrame, pd.DataFrame, int, int]:
+    train_aligned = X_train.copy()
+    test_aligned = X_test.copy()
+
+    # Keep a stable string-based schema for downstream model interfaces.
+    train_aligned.columns = train_aligned.columns.map(str)
+    test_aligned.columns = test_aligned.columns.map(str)
+
+    train_cols = list(train_aligned.columns)
+    test_cols = set(test_aligned.columns)
+    missing_in_test = [c for c in train_cols if c not in test_cols]
+    extra_in_test = [c for c in test_aligned.columns if c not in set(train_cols)]
+
+    # AutoGluon requires TEST schema to match TRAIN schema exactly.
+    test_aligned = test_aligned.reindex(columns=train_cols, fill_value=0)
+
+    return train_aligned, test_aligned, len(missing_in_test), len(extra_in_test)
+
+
 def _load_dataset(dataset_dir: Path) -> Tuple[pd.DataFrame, str]:
     data_csv = dataset_dir / "data.csv"
     info_json = dataset_dir / "info.json"
@@ -265,6 +286,9 @@ def evaluate_row_with_autogluon(
         X_test=X_test,
         step_names=row.sequence,
         registry=registry,
+    )
+    X_train_p, X_test_p, n_missing_test_cols, n_extra_test_cols = _align_test_columns_to_train(
+        X_train_p, X_test_p
     )
     y_test_p = y_test.reset_index(drop=True)
 
@@ -324,6 +348,8 @@ def evaluate_row_with_autogluon(
         "n_test": int(X_test_p.shape[0]),
         "n_features_train": int(X_train_p.shape[1]),
         "n_features_test": int(X_test_p.shape[1]),
+        "n_missing_test_cols_filled": int(n_missing_test_cols),
+        "n_extra_test_cols_dropped": int(n_extra_test_cols),
     }
 
 
