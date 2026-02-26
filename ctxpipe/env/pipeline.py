@@ -252,7 +252,10 @@ class Pipeline:
                     func_return = None
         else:
             try:
-                func_return = q.get()
+                # Even in no-timeout mode (used by inference), avoid infinite
+                # blocking if subprocess dies before writing to queue.
+                wait_s = max(1.0, float(getattr(self._config, "step_timeout", 120)))
+                func_return = q.get(timeout=wait_s)
                 if isinstance(func_return, BaseException):
                     raise func_return
             except Exception as e:
@@ -312,7 +315,7 @@ class Pipeline:
                 has_timeout=has_timeout,
             )
             if func_return is None:
-                logger.error(f"adding step {step} timed out")
+                logger.error(f"adding step {step} failed")
                 return -1
 
             [self.train_x, self.test_x, self.num_cols, self.cat_cols] = func_return

@@ -38,6 +38,102 @@ class Tester:
             self.epsilon_start - self.epsilon_final
         ) * math.exp(-1.0 * frame_id / self.epsilon_decay)
 
+    def _choose_step_for_component(
+        self,
+        curr_component: str,
+        state,
+        tried_list: list,
+        epsilon: float,
+        has_num_nan: bool,
+        has_cat_nan: bool,
+    ):
+        """Pick next candidate step for current component.
+
+        This method is inference-safe: it always returns a valid (action, step) pair
+        and provides blank fallbacks when model actions keep failing/repeating.
+        """
+        action = -1
+        step = Primitive()
+
+        if curr_component == "ImputerNum":
+            if has_num_nan:
+                action, _ = self.agent.act(
+                    self.env.pipeline,
+                    state,
+                    curr_component,
+                    tried_list,
+                    epsilon,
+                )
+                action = int(action)
+                action = min(max(action, 0), len(comp.imputernums) - 1)
+                step = deepcopy(comp.imputernums[action])
+            else:
+                action = len(comp.imputernums)
+                step = Primitive()
+
+        elif curr_component == "ImputerCat":
+            if has_cat_nan and -1 not in tried_list:
+                action = -1
+                step = ImputerCatPrim()
+            else:
+                # If imputercat failed once (or cat NaN is absent), force blank.
+                action = -2
+                step = Primitive()
+
+        elif curr_component == "Encoder":
+            if self.env.has_cat_cols():
+                action, _ = self.agent.act(
+                    self.env.pipeline,
+                    state,
+                    curr_component,
+                    tried_list,
+                    epsilon,
+                )
+                action = int(action)
+                action = min(max(action, 0), len(comp.encoders) - 1)
+                step = deepcopy(comp.encoders[action])
+            else:
+                action = len(comp.encoders)
+                step = Primitive()
+
+        elif curr_component == "FeaturePreprocessing":
+            action, _ = self.agent.act(
+                self.env.pipeline,
+                state,
+                curr_component,
+                tried_list,
+                epsilon,
+            )
+            action = int(action)
+            action = min(max(action, 0), len(comp.fpreprocessings) - 1)
+            step = deepcopy(comp.fpreprocessings[action])
+
+        elif curr_component == "FeatureEngine":
+            action, _ = self.agent.act(
+                self.env.pipeline,
+                state,
+                curr_component,
+                tried_list,
+                epsilon,
+            )
+            action = int(action)
+            action = min(max(action, 0), len(comp.fengines) - 1)
+            step = deepcopy(comp.fengines[action])
+
+        elif curr_component == "FeatureSelection":
+            action, _ = self.agent.act(
+                self.env.pipeline,
+                state,
+                curr_component,
+                tried_list,
+                epsilon,
+            )
+            action = int(action)
+            action = min(max(action, 0), len(comp.fselections) - 1)
+            step = deepcopy(comp.fselections[action])
+
+        return action, step
+
     def get_five_items_from_pipeline(
         self,
         fr,
@@ -54,169 +150,98 @@ class Tester:
         pipeline_index = self.env.pipeline.get_index()
         has_num_nan, has_cat_nan = self.env.has_nan()
 
-        action = -1
-        step = Primitive()
-
-        """predict action by epsilon-greedy"""
         logic_pipeline_id = self.env.pipeline.logic_pipeline_id
         curr_component = comp.lpipelines[logic_pipeline_id][pipeline_index]
+        max_retry = int(os.getenv("CTXPIPE_INFER_MAX_RETRY", "24"))
+        step_result = None
+        err = None
+        action = None
 
-        if curr_component == "ImputerNum":
-            if has_num_nan:
-                action, isModel = self.agent.act(
-                    self.env.pipeline,
-                    state,
-                    curr_component,
-                    tryed_list,
-                    epsilon,
-                    # taskid=taskid,
+        for _ in range(max_retry):
+            try:
+                action, step = self._choose_step_for_component(
+                    curr_component=curr_component,
+                    state=state,
+                    tried_list=tryed_list,
+                    epsilon=epsilon,
+                    has_num_nan=has_num_nan,
+                    has_cat_nan=has_cat_nan,
                 )
-                temp = comp.imputernums[action]
-                step = deepcopy(temp)
-            else:
-                action = len(comp.imputernums)
-                step = Primitive()
-
-        elif curr_component == "ImputerCat":
-            action = -1
-            if has_cat_nan:
-                step = ImputerCatPrim()
-            else:
-                step = Primitive()
-
-        elif curr_component == "Encoder":
-            if self.env.has_cat_cols():
-                action, isModel = self.agent.act(
-                    self.env.pipeline,
-                    state,
-                    curr_component,
-                    tryed_list,
-                    epsilon,
-                    # taskid=taskid,
+            except Exception as e:
+                logger.warning(
+                    f"[INFER] choose action failed for {curr_component}: {e}. fallback blank"
                 )
-                temp = comp.encoders[action]
-                step = deepcopy(temp)
-            else:
-                action = len(comp.encoders)
-                step = Primitive()
-
-        elif curr_component in [
-            "FeaturePreprocessing",
-            "FeatureEngine",
-            "FeatureSelection",
-        ]:
-            action, isModel = self.agent.act(
-                self.env.pipeline,
-                state,
-                curr_component,
-                tryed_list,
-                epsilon,
-                # taskid=taskid,
-            )
-            if curr_component == "FeaturePreprocessing":
-                temp = comp.fpreprocessings[action]
-                step = deepcopy(temp)
-            elif curr_component == "FeatureEngine":
-                temp = comp.fengines[action]
-                step = deepcopy(temp)
-            elif curr_component == "FeatureSelection":
-                temp = comp.fselections[action]
-                step = deepcopy(temp)
-
-        """execute action"""
-        step_result, err = self.env.step(step, has_timeout=False)
-        tryed_list.append(action)
-        repeat_time = 0
-
-        """if execute fail, try again"""
-        while step_result is None:
-            if curr_component == "ImputerNum":
-                if has_num_nan:
-                    try:
-                        action, isModel = self.agent.act(
-                            self.env.pipeline,
-                            state,
-                            curr_component,
-                            tryed_list,
-                            epsilon,
-                            # taskid=taskid,
-                        )
-                    except:
-                        logger.error(f"error state: {state}")
-                        raise RuntimeError("act failed")
-
-                        # return
-
-                    temp = comp.imputernums[action]
-                    step = deepcopy(temp)
-                else:
-                    action = len(comp.imputernums)
-                    step = Primitive()
-
-            elif curr_component == "ImputerCat":  # imputercat
-                action = -1
-                if has_cat_nan:
-                    step = ImputerCatPrim()
-                else:
-                    step = Primitive()
-
-            elif curr_component == "Encoder":  # encoder
-                if self.env.has_cat_cols():
-                    action, isModel = self.agent.act(
-                        self.env.pipeline,
-                        state,
-                        curr_component,
-                        tryed_list,
-                        epsilon,
-                        # taskid=taskid,
-                    )
-                    temp = comp.encoders[action]
-                    step = deepcopy(temp)
-                else:
-                    action = len(comp.encoders)
-                    step = Primitive()
-
-            elif curr_component in [
-                "FeaturePreprocessing",
-                "FeatureEngine",
-                "FeatureSelection",
-            ]:
-                action, isModel = self.agent.act(
-                    self.env.pipeline,
-                    state,
-                    curr_component,
-                    tryed_list,
-                    epsilon,
-                    # taskid=taskid,
-                )
-                if curr_component == "FeaturePreprocessing":
-                    temp = comp.fpreprocessings[action]
-                    step = deepcopy(temp)
-                elif curr_component == "FeatureEngine":
-                    temp = comp.fengines[action]
-                    step = deepcopy(temp)
-                elif curr_component == "FeatureSelection":
-                    temp = comp.fselections[action]
-                    step = deepcopy(temp)
+                action, step = -999, Primitive()
 
             if action in tryed_list:
-                repeat_time += 1
                 continue
 
             tryed_list.append(action)
-            step_result, err = self.env.step(step, has_timeout=False)
+            try:
+                step_result, err = self.env.step(step, has_timeout=False)
+            except Exception as e:
+                logger.warning(f"[INFER] env.step crashed on {curr_component}: {e}")
+                step_result, err = None, -1
+
+            if step_result is not None:
+                break
+
+        if step_result is None:
+            # Last-resort hard fallback: blank should be no-op and must progress.
+            logger.error(
+                f"[INFER] component {curr_component} failed after {max_retry} retries; forcing blank"
+            )
+            blank_step = Primitive()
+            try:
+                step_result, err = self.env.step(blank_step, has_timeout=False)
+                step = blank_step
+            except Exception as e:
+                logger.error(
+                    f"[INFER] blank fallback crashed for {curr_component}: {e}"
+                )
+                step_result = None
 
         """get (st, r, st+1, done) for this execute"""
+        if step_result is None:
+            # Never crash inference loop on a bad operator; mark failure score.
+            logger.error(
+                f"[INFER] unrecoverable failure at component {curr_component}; assigning reward=-1"
+            )
+            reward = -1.0
+            done = True
+            seq.append("blank")
+            try:
+                self.end_time = time.time()
+                self.env.reset(
+                    taskid=taskid,
+                    default=False,
+                    metric=comp.metrics[0],
+                    predictor=comp.predictors[self.test_pred],
+                )
+                self.env.pipeline.logic_pipeline_id, _ = self.agent.act(
+                    self.env.pipeline,
+                    self.env.lpip_state,
+                    "LogicPipeline",
+                    epsilon=self._epsilon_by_frame(0),
+                )
+                state = self.env.get_state()
+            except Exception as e:
+                logger.warning(f"[INFER] reset after failure failed: {e}")
+            return state, reward_dic, seq, reward, done
+
         state, reward, next_state, done = step_result
         seq.append(step.name)
         state = next_state
 
         """if done, evaluate and save result"""
         if done:
-            with open(self._config.pipelines_file_name, "a") as f:
-                f.write(
-                    f"{tag}\t{dataset_name}\t{self.env.pipeline.sequence}\t{reward}\n"
-                )
+            try:
+                with open(self._config.pipelines_file_name, "a") as f:
+                    f.write(
+                        f"{tag}\t{dataset_name}\t{self.env.pipeline.sequence}\t{reward}\n"
+                    )
+            except Exception as e:
+                logger.warning(f"[INFER] write pipelines.tsv failed: {e}")
 
             self.end_time = self.env.end_time
             self.env.reset(
@@ -265,7 +290,8 @@ class Tester:
                 i = taskid
 
         if i is None:
-            raise ValueError("Invalid i")
+            logger.error(f"Invalid dataset mapping for path: {data_path}")
+            return [], -1.0
 
         seq = []
         select_cl = 0
@@ -291,19 +317,26 @@ class Tester:
 
         reward = None
         for fr in range(self.pre_fr + 1, self.pre_fr + 7):
-            state, reward_dic, seq, reward, done = self.get_five_items_from_pipeline(
-                fr,
-                state,
-                reward_dic,
-                seq,
-                taskid=i,
-                need_save=False,
-                dataset_name=dataset_name,
-                tag=tag,
-            )
+            try:
+                state, reward_dic, seq, reward, done = (
+                    self.get_five_items_from_pipeline(
+                        fr,
+                        state,
+                        reward_dic,
+                        seq,
+                        taskid=i,
+                        need_save=False,
+                        dataset_name=dataset_name,
+                        tag=tag,
+                    )
+                )
+            except Exception as e:
+                logger.error(f"[INFER] fatal exception at frame {fr}: {e}")
+                reward = -1.0
+                break
 
         if reward is None:
-            raise ValueError("Invalid reward")
+            reward = -1.0
 
         score = reward
 
