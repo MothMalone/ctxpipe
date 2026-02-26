@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import MissingIndicator, SimpleImputer
 from sklearn.pipeline import FeatureUnion
@@ -10,7 +11,7 @@ from .primitive import Primitive
 
 
 def catch_num(data):
-    num_cols = [col for col in data.columns if str(data[col].dtypes) != "object"]
+    num_cols = [col for col in data.columns if is_numeric_dtype(data[col])]
     num_cols.sort()
     cat_cols = [col for col in data.columns if col not in num_cols]
     cat_train_x = data[cat_cols]
@@ -43,9 +44,11 @@ class ImputerMean(Primitive):
     def transform(self, train_x, test_x, train_y):
         cat_trainX, num_trainX = catch_num(train_x)
         cat_testX, num_testX = catch_num(test_x)
+        if num_trainX.shape[1] == 0:
+            return train_x.reset_index(drop=True), test_x.reset_index(drop=True)
         self.imp.fit(num_trainX)
         cols = list(num_trainX.columns)
-        num_trainX = self.imp.fit_transform(num_trainX)
+        num_trainX = self.imp.transform(num_trainX)
         num_trainX = pd.DataFrame(num_trainX).reset_index(drop=True).infer_objects()
         cols = ["num_" + str(i) for i in num_trainX.columns]
         num_trainX.columns = cols
@@ -55,7 +58,7 @@ class ImputerMean(Primitive):
         )
 
         cols = list(num_testX.columns)
-        num_testX = self.imp.fit_transform(num_testX)
+        num_testX = self.imp.transform(num_testX)
         num_testX = pd.DataFrame(num_testX).reset_index(drop=True).infer_objects()
         cols = ["num_" + str(i) for i in num_testX.columns]
         num_testX.columns = cols
@@ -90,9 +93,11 @@ class ImputerMedian(Primitive):
     def transform(self, train_x, test_x, train_y):
         cat_trainX, num_trainX = catch_num(train_x)
         cat_testX, num_testX = catch_num(test_x)
+        if num_trainX.shape[1] == 0:
+            return train_x.reset_index(drop=True), test_x.reset_index(drop=True)
         self.imp.fit(num_trainX)
         cols = list(num_trainX.columns)
-        num_trainX = self.imp.fit_transform(num_trainX)
+        num_trainX = self.imp.transform(num_trainX)
         num_trainX = pd.DataFrame(num_trainX).reset_index(drop=True).infer_objects()
         cols = ["num_" + str(i) for i in num_trainX.columns]
         num_trainX.columns = cols
@@ -100,7 +105,7 @@ class ImputerMedian(Primitive):
             [cat_trainX.reset_index(drop=True), num_trainX.reset_index(drop=True)],
             axis=1,
         )
-        num_testX = self.imp.fit_transform(num_testX)
+        num_testX = self.imp.transform(num_testX)
         num_testX = pd.DataFrame(num_testX).reset_index(drop=True).infer_objects()
         cols = ["num_" + str(i) for i in num_testX.columns]
         num_testX.columns = cols
@@ -135,10 +140,12 @@ class ImputerNumPrim(Primitive):
     def transform(self, train_x, test_x, train_y):
         cat_trainX, num_trainX = catch_num(train_x)
         cat_testX, num_testX = catch_num(test_x)
+        if num_trainX.shape[1] == 0:
+            return train_x.reset_index(drop=True), test_x.reset_index(drop=True)
         self.imp.fit(num_trainX)
 
         cols = list(num_trainX.columns)
-        num_trainX = self.imp.fit_transform(num_trainX)
+        num_trainX = self.imp.transform(num_trainX)
         num_trainX = pd.DataFrame(num_trainX).reset_index(drop=True).infer_objects()
         cols = ["num_" + str(i) for i in num_trainX.columns]
         num_trainX.columns = cols
@@ -148,7 +155,7 @@ class ImputerNumPrim(Primitive):
         )
 
         cols = list(num_testX.columns)
-        num_testX = self.imp.fit_transform(num_testX)
+        num_testX = self.imp.transform(num_testX)
         num_testX = pd.DataFrame(num_testX).reset_index(drop=True).infer_objects()
         cols = ["num_" + str(i) for i in num_testX.columns]
         num_testX.columns = cols

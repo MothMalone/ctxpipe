@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import MissingIndicator, SimpleImputer
 from sklearn.pipeline import FeatureUnion
@@ -10,7 +11,7 @@ from .primitive import Primitive
 
 
 def catch_num(data):
-    num_cols = [col for col in data.columns if str(data[col].dtypes) != "object"]
+    num_cols = [col for col in data.columns if is_numeric_dtype(data[col])]
     num_cols.sort()
     cat_cols = [col for col in data.columns if col not in num_cols]
     cat_train_x = data[cat_cols]
@@ -43,9 +44,11 @@ class ImputerCatPrim(Primitive):
     def transform(self, train_x, test_x, train_y):
         cat_trainX, num_trainX = catch_num(train_x)
         cat_testX, num_testX = catch_num(test_x)
+        if cat_trainX.shape[1] == 0:
+            return train_x.reset_index(drop=True), test_x.reset_index(drop=True)
         self.imp.fit(cat_trainX)
         cols = list(cat_trainX.columns)
-        cat_trainX = self.imp.fit_transform(cat_trainX.reset_index(drop=True))
+        cat_trainX = self.imp.transform(cat_trainX.reset_index(drop=True))
         cat_trainX = pd.DataFrame(cat_trainX).reset_index(drop=True).infer_objects()
         cols = ["col_" + str(i) for i in cat_trainX.columns]
         cat_trainX.columns = cols
@@ -54,7 +57,7 @@ class ImputerCatPrim(Primitive):
 
         train_data_x = pd.concat([cat_trainX, num_trainX], axis=1)
         cols = list(cat_testX.columns)
-        cat_testX = self.imp.fit_transform(cat_testX.reset_index(drop=True))
+        cat_testX = self.imp.transform(cat_testX.reset_index(drop=True))
         cat_testX = pd.DataFrame(cat_testX).reset_index(drop=True).infer_objects()
         cols = ["col_" + str(i) for i in cat_testX.columns]
         cat_testX.columns = cols

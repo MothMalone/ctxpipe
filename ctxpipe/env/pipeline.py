@@ -3,6 +3,7 @@ import os
 import signal
 import time
 import getpass
+import traceback
 from multiprocessing import Process
 from typing import List
 
@@ -34,8 +35,9 @@ def _do_add_step(
         train_x, test_x = step.transform(train_x, test_x, train_y)
         num_cols = list(train_x._get_numeric_data().columns)
         cat_cols = list(set(train_x.columns) - set(num_cols))
-    except:
-        queue.put(FunctionTimedOut())
+    except Exception:
+        # Keep child-process traceback so parent does not report a fake timeout.
+        queue.put(RuntimeError(traceback.format_exc()))
         queue.close()
         return
 
@@ -53,8 +55,8 @@ def _do_evaluate(
     try:
         pred_y = predictor.transform(train_x, train_y, test_x)
         result = metric.evaluate(pred_y, test_y)
-    except:
-        queue.put(FunctionTimedOut())
+    except Exception:
+        queue.put(RuntimeError(traceback.format_exc()))
         queue.close()
         return
 
@@ -245,16 +247,16 @@ class Pipeline:
                     func_return = q.get_nowait()
                     if isinstance(func_return, BaseException):
                         raise func_return
-                except:
-                    logger.warning(f"Error: {func.__name__}")
+                except Exception as e:
+                    logger.warning(f"Error: {func.__name__}: {e}")
                     func_return = None
         else:
             try:
                 func_return = q.get()
                 if isinstance(func_return, BaseException):
                     raise func_return
-            except Exception:
-                logger.warning(f"Error: {func.__name__}")
+            except Exception as e:
+                logger.warning(f"Error: {func.__name__}: {e}")
                 func_return = None
 
         try:
