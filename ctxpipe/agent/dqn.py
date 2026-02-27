@@ -178,6 +178,29 @@ class Agent:
 
         raise ValueError(f"No such model: {name}")
 
+    def _infer_forward_mode(self) -> Optional[ForwardMode]:
+        """Optional forward-mode override for inference ablations.
+
+        Use env var CTXPIPE_INFER_FORWARD_MODE in {gated, closed, open}.
+        """
+        raw = os.getenv("CTXPIPE_INFER_FORWARD_MODE", "").strip().upper()
+        if raw == "":
+            return None
+
+        mapping = {
+            "GATED": ForwardMode.GATED,
+            "CLOSED": ForwardMode.CLOSED,
+            "OPEN": ForwardMode.OPEN,
+        }
+        if raw in mapping:
+            return mapping[raw]
+
+        logger.warning(
+            "Unknown CTXPIPE_INFER_FORWARD_MODE='{}'. Expected one of: gated, closed, open. Falling back to default.",
+            raw,
+        )
+        return None
+
     def act(
         self,
         pipeline: Pipeline,
@@ -208,7 +231,11 @@ class Agent:
             ctx_embeddings = embedder.embed(train_x_csv)  # type:ignore
             ctx_embeddings = ctx_embeddings.unsqueeze(dim=0).to(DEVICE)
 
-            q_value: torch.Tensor = model(state, ctx_embeddings).cpu()
+            infer_mode = self._infer_forward_mode()
+            if infer_mode is None:
+                q_value: torch.Tensor = model(state, ctx_embeddings).cpu()
+            else:
+                q_value: torch.Tensor = model(state, ctx_embeddings, infer_mode).cpu()
 
             action_index_list = [i for i in range(model.action_dim)]
             action_index_list = np.array(
